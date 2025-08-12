@@ -1,0 +1,308 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini API Key Manager</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 2em; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 1200px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .form-section, .keys-section { margin-bottom: 2em; }
+        form { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+        textarea, input, select, button { padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 1rem; }
+        textarea { width: 100%; resize: vertical; }
+        button, .btn { background-color: #007bff; color: white; border: none; cursor: pointer; transition: background-color 0.2s; }
+        button:hover, .btn:hover { background-color: #0056b3; }
+        .btn-danger { background-color: #dc3545; }
+        .btn-danger:hover { background-color: #c82333; }
+        .btn-info { background-color: #17a2b8; }
+        .btn-info:hover { background-color: #138496; }
+        .quick-copy { background-color: #28a745; font-size: 1.1rem; padding: 12px; }
+        .quick-copy:hover { background-color: #218838; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; vertical-align: middle; }
+        th { background-color: #f8f9fa; }
+        .status-available { color: #28a745; font-weight: bold; }
+        .status-unavailable { color: #dc3545; font-weight: bold; }
+        .status-untested { color: #fd7e14; font-weight: bold; }
+        .has-tooltip {
+            cursor: help;
+            text-decoration: underline dotted;
+        }
+        .copy-error-icon {
+            cursor: pointer;
+            margin-left: 8px;
+            font-style: normal;
+            display: inline-block;
+        }
+        .action-btn { padding: 5px 10px; font-size: 0.9rem; margin-right: 5px; }
+        .controls { margin-bottom: 1em; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;}
+        .flash-message { padding: 1rem; margin-bottom: 1rem; border-radius: 5px; color: #fff; }
+        .flash-success { background-color: #28a745; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Gemini API Key Manager</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash-message flash-success">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="form-section">
+        <h2>Add New Keys</h2>
+        <form action="{{ url_for('add_key') }}" method="POST">
+            <div style="width: 100%;">
+                <label for="api_keys">API Keys (one per line):</label>
+                <textarea id="api_keys" name="api_keys" rows="5" required></textarea>
+            </div>
+            <div>
+                <label for="label">Label/Provider:</label>
+                <input type="text" id="label" name="label" required>
+            </div>
+            <div>
+                <label for="warranty_period">Warranty (days):</label>
+                <input type="number" id="warranty_period" name="warranty_period" value="30" required>
+            </div>
+            <button type="submit">Add Keys</button>
+        </form>
+    </div>
+
+    <div class="keys-section">
+        <h2>Managed Keys</h2>
+        <div class="controls">
+             <button id="quick-copy-btn" class="quick-copy">Quick Copy (Round-Robin)</button>
+             <button id="test-all-btn" class="btn-info">一键测试全部</button>
+             
+             <form id="filter-form" action="{{ url_for('index') }}" method="GET" style="display: flex; align-items: center; gap: 15px;">
+                <span style="font-weight: bold;">筛选:</span>
+                <div>
+                    <label for="status_filter" style="margin-right: 5px;">可用状态:</label>
+                    <select name="status_filter" id="status_filter" onchange="this.form.submit()">
+                        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部</option>
+                        <option value="available" {% if status_filter == 'available' %}selected{% endif %}>可用</option>
+                        <option value="unavailable" {% if status_filter == 'unavailable' %}selected{% endif %}>不可用</option>
+                        <option value="untested" {% if status_filter == 'untested' %}selected{% endif %}>未测试</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="warranty_filter" style="margin-right: 5px;">质保状态:</label>
+                    <select name="warranty_filter" id="warranty_filter" onchange="this.form.submit()">
+                        <option value="all" {% if warranty_filter == 'all' %}selected{% endif %}>全部</option>
+                        <option value="active" {% if warranty_filter == 'active' %}selected{% endif %}>质保中</option>
+                        <option value="expired" {% if warranty_filter == 'expired' %}selected{% endif %}>已过期</option>
+                    </select>
+                </div>
+                <noscript><button type="submit" class="btn" style="padding: 5px 10px;">应用</button></noscript>
+            </form>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Label</th>
+                    <th>Key (Partial)</th>
+                    <th>Status</th>
+                    <th>Warranty</th>
+                    <th>Availability</th>
+                    <th>Last Tested</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="keys-table-body">
+                {% for key in keys %}
+                <tr id="key-row-{{ key.id }}">
+                    <td>{{ key.label }}</td>
+                    <td>...{{ key.api_key[-4:] }}</td>
+                    <td class="status-cell-container">
+                        <span class="status-cell status-{{ key.status.lower() }} {% if key.status == 'Unavailable' and key.last_error_message %}has-tooltip{% endif %}"
+                              title="{{ key.summarized_error_message if key.status == 'Unavailable' else '' }}">
+                            {{ key.status }}
+                        </span>
+                        {% if key.status == 'Unavailable' and key.last_error_message %}
+                        <span class="copy-error-icon" 
+                              data-error="{{ key.last_error_message }}" 
+                              onclick="copyErrorOnClick(this)"
+                              title="Copy full error message">📋</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ 'Expired' if key.is_expired else 'Active' }}</td>
+                    <td class="availability-cell">{{ "%.2f"|format(key.availability_rate) }}%</td>
+                    <td class="last-tested-cell">{{ key.last_tested_beijing_time }}</td>
+                    <td>
+                        <button class="action-btn" onclick="copyToClipboard('{{ key.api_key }}', this)">Copy</button>
+                        <button class="action-btn btn-info" onclick="testKey({{ key.id }}, this)">Test</button>
+                        <button class="action-btn btn-danger" onclick="deleteKey({{ key.id }}, this)">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function copyToClipboard(text, element) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = element.textContent;
+            element.textContent = 'Copied!';
+            setTimeout(() => { element.textContent = originalText; }, 2000);
+        }).catch(err => {
+            alert('Failed to copy!');
+        });
+    }
+
+    function copyErrorOnClick(element) {
+        const errorText = element.dataset.error;
+        navigator.clipboard.writeText(errorText).then(() => {
+            const originalIcon = element.textContent;
+            element.textContent = '✅';
+            setTimeout(() => { element.textContent = originalIcon; }, 2000);
+        }).catch(err => {
+            alert('Failed to copy error message!');
+        });
+    }
+
+    async function testKey(keyId, element) {
+        const originalText = element.textContent;
+        element.textContent = 'Testing...';
+        element.disabled = true;
+
+        const response = await fetch(`/test/${keyId}`, { method: 'POST' });
+        const result = await response.json();
+
+        if (result.success) {
+            element.textContent = 'Test Started';
+            setTimeout(() => {
+                element.textContent = originalText;
+                element.disabled = false;
+            }, 2000);
+        } else {
+            alert('Failed to initiate test.');
+            element.textContent = originalText;
+            element.disabled = false;
+        }
+    }
+
+    async function deleteKey(keyId, element) {
+        if (confirm('Are you sure you want to delete this key?')) {
+            const response = await fetch(`/delete/${keyId}`, { method: 'POST' });
+            const result = await response.json();
+
+            if (result.success) {
+                document.getElementById(`key-row-${keyId}`).remove();
+            } else {
+                alert('Failed to delete key.');
+            }
+        }
+    }
+
+    document.getElementById('quick-copy-btn').addEventListener('click', async function() {
+        const element = this;
+        const originalText = element.textContent; // Correctly captures "Quick Copy..."
+        element.textContent = 'Searching...';
+        element.disabled = true;
+
+        try {
+            const response = await fetch('/copy');
+            const result = await response.json();
+
+            if (response.ok) {
+                // Use the clipboard API directly
+                navigator.clipboard.writeText(result.api_key).then(() => {
+                    element.textContent = 'Copied!';
+                    setTimeout(() => {
+                        element.textContent = originalText; // Restore the initial text
+                        element.disabled = false;
+                    }, 2000);
+                }).catch(err => {
+                    alert('Failed to copy key to clipboard.');
+                    element.textContent = originalText;
+                    element.disabled = false;
+                });
+            } else {
+                alert(result.error || 'An unknown error occurred.');
+                element.textContent = originalText;
+                element.disabled = false;
+            }
+        } catch (error) {
+            alert('Failed to connect to the server.');
+            element.textContent = originalText;
+            element.disabled = false;
+        }
+    });
+
+    document.getElementById('test-all-btn').addEventListener('click', async function() {
+        const element = this;
+        const originalText = element.textContent;
+        element.textContent = 'Initiating...';
+        element.disabled = true;
+
+        const response = await fetch('/test_all', { method: 'POST' });
+        const result = await response.json();
+
+        if (result.success) {
+            element.textContent = 'Tests Started';
+            setTimeout(() => {
+                element.textContent = originalText;
+                element.disabled = false;
+            }, 2000);
+        } else {
+            alert('Failed to start tests.');
+            element.textContent = originalText;
+            element.disabled = false;
+        }
+    });
+
+    // --- Periodic Status Updater ---
+    async function updateStatuses() {
+        try {
+            const response = await fetch('/get_updates');
+            if (!response.ok) return;
+            const keys = await response.json();
+
+            keys.forEach(key => {
+                const row = document.getElementById(`key-row-${key.id}`);
+                if (row) {
+                    const statusContainer = row.querySelector('.status-cell-container');
+                    
+                    let statusText = `<span class="status-cell status-${key.status.toLowerCase()}">${key.status}</span>`;
+                    let copyIcon = '';
+
+                    if (key.status === 'Unavailable' && key.last_error_message) {
+                        const sanitizedFullError = key.last_error_message.replace(/"/g, '&quot;');
+                        const summarizedError = key.summarized_error_message.replace(/"/g, '&quot;');
+                        
+                        statusText = `<span class="status-cell status-unavailable has-tooltip" title="${summarizedError}">${key.status}</span>`;
+                        copyIcon = ` <span class="copy-error-icon" 
+                                           data-error="${sanitizedFullError}" 
+                                           onclick="copyErrorOnClick(this)"
+                                           title="Copy full error message">📋</span>`;
+                    }
+                    
+                    statusContainer.innerHTML = statusText + copyIcon;
+
+                    row.querySelector('.availability-cell').textContent = key.availability_rate;
+                    row.querySelector('.last-tested-cell').textContent = key.last_tested;
+                }
+            });
+        } catch (error) {
+            console.error("Error fetching updates:", error);
+        }
+    }
+
+    // Start the updater to run every 5 seconds
+    setInterval(updateStatuses, 5000);
+    // Also run once on page load
+    document.addEventListener('DOMContentLoaded', updateStatuses);
+
+</script>
+
+</body>
+</html>
