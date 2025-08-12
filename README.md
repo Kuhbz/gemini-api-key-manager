@@ -2,7 +2,8 @@
 
 一个基于 Python Flask 的轻量级本地 Web 应用，用于个人高效、安全地存储、测试和轮询使用 API 密钥。
 
-![应用主界面截图](https://i.imgur.com/s9aV3tM.png)
+![界面截图1](static/1.png)
+![界面截图2](static/2.png)
 
 ---
 
